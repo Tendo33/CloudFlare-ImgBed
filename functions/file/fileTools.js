@@ -54,6 +54,12 @@ export const FILE_CACHE_CONTROL = {
     NO_STORE: 'private, no-store, max-age=0',
 };
 
+const SCRIPTABLE_DOCUMENT_TYPES = /^(text\/html|application\/xhtml\+xml|image\/svg\+xml|text\/xml|application\/xml|text\/xsl)\b/i;
+
+export function isScriptableDocumentType(fileType) {
+    return typeof fileType === 'string' && SCRIPTABLE_DOCUMENT_TYPES.test(fileType.trim());
+}
+
 // 公共响应头设置函数
 export function setCommonHeaders(headers, encodedFileName, fileType, cacheControl = FILE_CACHE_CONTROL.PUBLIC) {
     headers.set('Content-Disposition', `inline; filename="${encodedFileName}"; filename*=UTF-8''${encodedFileName}`);
@@ -63,6 +69,15 @@ export function setCommonHeaders(headers, encodedFileName, fileType, cacheContro
 
     if (fileType) {
         headers.set('Content-Type', fileType);
+    }
+
+    // Uploaded files are served from the same origin as the admin UI. Stop the
+    // browser from sniffing them into HTML, and run script-capable documents
+    // (HTML/SVG/XML) in an opaque sandboxed origin so an uploaded file cannot
+    // run script against this site. Images still render normally.
+    headers.set('X-Content-Type-Options', 'nosniff');
+    if (isScriptableDocumentType(fileType)) {
+        headers.set('Content-Security-Policy', 'sandbox');
     }
 
     headers.set('Cache-Control', cacheControl || FILE_CACHE_CONTROL.PUBLIC);
@@ -86,6 +101,9 @@ export function handleHeadRequest(headers, etag = null) {
     responseHeaders.set('Access-Control-Allow-Origin', headers.get('Access-Control-Allow-Origin') || '*');
     responseHeaders.set('Accept-Ranges', headers.get('Accept-Ranges') || 'bytes');
     responseHeaders.set('Cache-Control', headers.get('Cache-Control') || 'public, max-age=2592000');
+    for (const name of ['X-Content-Type-Options', 'Content-Security-Policy']) {
+        if (headers.get(name)) responseHeaders.set(name, headers.get(name));
+    }
 
     if (etag) {
         responseHeaders.set('ETag', etag);
